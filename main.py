@@ -33,6 +33,12 @@ def init_db():
         contestant_voted INTEGER DEFAULT NULL
     )
     """)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS tokens (
+        token TEXT PRIMARY KEY,
+        email TEXT NOT NULL
+    )
+    """)
     conn.commit()
     conn.close()
 
@@ -69,8 +75,14 @@ def send_verification_email(email, code):
     except smtplib.SMTPException as e:
         print(f"Failed to send email: {e}")
 
-def generate_token():
-    return hashlib.sha256(os.urandom(64)).hexdigest()
+def generate_token(email):
+    token = hashlib.sha256(os.urandom(64)).hexdigest()
+    conn = get_db_connection()
+    conn.execute("INSERT INTO tokens (token, email) VALUES (?, ?)", (token, email))
+    conn.commit()
+    conn.close()
+    return token
+
 
 def token_required(f):
     @wraps(f)
@@ -84,9 +96,11 @@ def token_required(f):
     return decorated
 
 def verify_token(token):
-    # Placeholder for token verification logic
-    # In a real application, you would verify the token against stored tokens
-    return True
+    conn = get_db_connection()
+    user = conn.execute("SELECT * FROM tokens WHERE token = ?", (token,)).fetchone()
+    conn.close()
+    return user is not None
+
 
 class UserAccess(Resource):
     def post(self):
@@ -108,7 +122,7 @@ class UserAccess(Resource):
 
         if code:
             if user['verification_code'] == code and int(time.time()) < user['code_expiry']:
-                token = generate_token()
+                token = generate_token(email)
                 # Optionally, store the token in the database associated with the user
                 conn.close()
                 return {'token': token}, 200
@@ -127,7 +141,9 @@ class UserAccess(Resource):
 class Vote(Resource):
     @token_required
     def post(self):
-        email = request.json.get('email')
+        email = verify_token(request.json.get('token'))
+        if email == None:
+            return {'message': 'Token not found'}, 400  
         contestant_id = request.json.get('contestant_id')
 
         conn = get_db_connection()
