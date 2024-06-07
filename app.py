@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify
-from flask_restful import Api, Resource
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -12,7 +11,6 @@ import hashlib
 from functools import wraps
 
 app = Flask(__name__)
-api = Api(app)
 dotenv.load_dotenv()
 
 DATABASE = 'voting.db'
@@ -56,9 +54,9 @@ def send_verification_email(email, code):
             html_content = file.read()
         html_content = html_content.replace("{code}", str(code))
     except FileNotFoundError as e:
-        return jsonify({'message': 'Error reading email template: ' + str(e)}), 500
+        return {'message': 'Error reading email template: ' + str(e)}, 500
     except Exception as e:
-        return jsonify({'message': 'Error processing email template: ' + str(e)}), 500
+        return {'message': 'Error processing email template: ' + str(e)}, 500
 
     msg = MIMEMultipart()
     msg['Subject'] = subject
@@ -72,9 +70,9 @@ def send_verification_email(email, code):
             smtp_server.sendmail(sender, recipients, msg.as_string())
         print("Email sent successfully")
     except smtplib.SMTPException as e:
-        return jsonify({'message': 'Failed to send email: ' + str(e)}), 500
+        return {'message': 'Failed to send email: ' + str(e)}, 500
     except Exception as e:
-        return jsonify({'message': 'Unexpected error sending email: ' + str(e)}), 500
+        return {'message': 'Unexpected error sending email: ' + str(e)}, 500
 
 def generate_token(email):
     token = hashlib.sha256(os.urandom(64)).hexdigest()
@@ -84,9 +82,9 @@ def generate_token(email):
         conn.commit()
         conn.close()
     except sqlite3.Error as e:
-        return jsonify({'message': 'Database error generating token: ' + str(e)}), 500
+        return {'message': 'Database error generating token: ' + str(e)}, 500
     except Exception as e:
-        return jsonify({'message': 'Unexpected error generating token: ' + str(e)}), 500
+        return {'message': 'Unexpected error generating token: ' + str(e)}, 500
     return token
 
 def verify_token(token):
@@ -100,79 +98,87 @@ def verify_token(token):
         return False, {'message': 'Unexpected error verifying token: ' + str(e)}
     return user is not None
 
-class UserAccess(Resource):
-    def post(self):
-        email = request.json.get('email')
-        code = request.json.get('code', None)
+def token_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = request.json.get('token')
+        if not token:
+            return jsonify({'message': 'Token is missing'}), 401
+        is_valid, error_message = verify_token(token)
+        if not is_valid:
+            return jsonify(error_message), 401
+        return f(*args, **kwargs)
+    return decorated_function
 
-        conn = get_db_connection()
-        user = conn.execute("SELECT * FROM users WHERE email =?", (email,)).fetchone()
+@app.route('/access', methods=['POST'])
+def user_access():
+    email = request.json.get('email')
+    code = request.json.get('code', None)
 
-        if not user:
-            code = generate_verification_code()
-            expiry = int(time.time()) + 600
-            conn.execute("INSERT INTO users (email, verification_code, code_expiry) VALUES (?,?,?)",
-                         (email, code, expiry))
-            conn.commit()
-            send_verification_email(email, code)
-            conn.close()
-            return {'message': 'User registered, verification code sent'}, 200
+    conn = get_db_connection()
+    user = conn.execute("SELECT * FROM users WHERE email =?", (email,)).fetchone()
 
-        if code:
-            if user['verification_code'] == code and int(time.time()) < user['code_expiry']:
-                token = generate_token(email)
-                conn.close()
-                return {'token': token}, 200
-            conn.close()
-            return {'error': 'Invalid or expired code'}, 401
-        else:
-            code = generate_verification_code()
-            expiry = int(time.time()) + 600
-            conn.execute("UPDATE users SET verification_code =?, code_expiry =? WHERE email =?",
-                         (code, expiry, email))
-            conn.commit()
-            send_verification_email(email, code)
-            conn.close()
-            return {'message': 'Verification code re-sent'}, 200
-
-class Vote(Resource):
-    @token_required
-    def post(self):
-        email = verify_token(request.json.get('token'))
-        if email == None:
-            return {'message': 'Token not found'}, 400  
-        contestant_id = request.json.get('contestant_id')
-
-        conn = get_db_connection()
-        user = conn.execute("SELECT * FROM users WHERE email =?", (email,)).fetchone()
-
-        if not user:
-            conn.close()
-            return {'error': 'User not found'}, 404
-
-        if user['contestant_voted'] is not None:
-            conn.close()
-            return {'error': 'User has already voted'}, 400
-
-        conn.execute("UPDATE users SET contestant_voted =? WHERE email =?", (contestant_id, email))
+    if not user:
+        code = generate_verification_code()
+        expiry = int(time.time()) + 600
+        conn.execute("INSERT INTO users (email, verification_code, code_expiry) VALUES (?,?,?)",
+                     (email, code, expiry))
         conn.commit()
+        send_verification_email(email, code)
         conn.close()
-        return {'message': 'Vote recorded'}, 200
+        return jsonify({'message': 'User registered, verification code sent'}), 200
 
-class VoteResults(Resource):
-    def get(self):
-        conn = get_db_connection()
-        results = conn.execute("SELECT contestant_voted, COUNT(*) as vote_count FROM users WHERE contestant_voted IS NOT NULL GROUP BY contestant_voted").fetchall()
+    if code:
+        if user['verification_code'] == code and int(time.time()) < user['code_expiry']:
+            token = generate_token(email)
+            conn.close()
+            return jsonify({'token': token}), 200
         conn.close()
+        return jsonify({'error': 'Invalid or expired code'}), 401
+    else:
+        code = generate_verification_code()
+        expiry = int(time.time()) + 600
+        conn.execute("UPDATE users SET verification_code =?, code_expiry =? WHERE email =?",
+                     (code, expiry, email))
+        conn.commit()
+        send_verification_email(email, code)
+        conn.close()
+        return jsonify({'message': 'Verification code re-sent'}), 200
 
-        vote_counts = {result['contestant_voted']: result['vote_count'] for result in results}
+@app.route('/vote', methods=['POST'])
+@token_required
+def vote():
+    email = verify_token(request.json.get('token'))
+    if email is None:
+        return jsonify({'message': 'Token not found'}), 400  
+    contestant_id = request.json.get('contestant_id')
 
-        return jsonify(vote_counts), 200
+    conn = get_db_connection()
+    user = conn.execute("SELECT * FROM users WHERE email =?", (email,)).fetchone()
 
-api.add_resource(UserAccess, '/access')
-api.add_resource(Vote, '/vote')
-api.add_resource(VoteResults, '/results')
+    if not user:
+        conn.close()
+        return jsonify({'error': 'User not found'}), 404
+
+    if user['contestant_voted'] is not None:
+        conn.close()
+        return jsonify({'error': 'User has already voted'}), 400
+
+    conn.execute("UPDATE users SET contestant_voted =? WHERE email =?", (contestant_id, email))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Vote recorded'}), 200
+
+@app.route('/results', methods=['GET'])
+def vote_results():
+    conn = get_db_connection()
+    results = conn.execute("SELECT contestant_voted, COUNT(*) as vote_count FROM users WHERE contestant_voted IS NOT NULL GROUP BY contestant_voted").fetchall()
+    conn.close()
+
+    vote_counts = {result['contestant_voted']: result['vote_count'] for result in results}
+
+    return jsonify(vote_counts), 200
 
 if __name__ == '__main__':
     init_db()
-    app.run(port=3003)
+    app.run(debug=True, host='0.0.0.0')
