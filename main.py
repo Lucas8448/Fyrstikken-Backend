@@ -176,4 +176,4 @@ api.add_resource(Vote, '/vote')
 api.add_resource(VoteResults, '/results')
 
 if __name__ == '__main__':
-    app.run(debug=True, port=3003)
+    app.run(port=3003)
