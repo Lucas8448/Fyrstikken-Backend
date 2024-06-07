@@ -123,7 +123,6 @@ class UserAccess(Resource):
         if code:
             if user['verification_code'] == code and int(time.time()) < user['code_expiry']:
                 token = generate_token(email)
-                # Optionally, store the token in the database associated with the user
                 conn.close()
                 return {'token': token}, 200
             conn.close()
