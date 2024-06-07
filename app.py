@@ -42,8 +42,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-init_db()
-
 def generate_verification_code():
     return random.randint(100000, 999999)
 
@@ -57,9 +55,10 @@ def send_verification_email(email, code):
         with open("assets/email_template.html", "r") as file:
             html_content = file.read()
         html_content = html_content.replace("{code}", str(code))
+    except FileNotFoundError as e:
+        return jsonify({'message': 'Error reading email template: ' + str(e)}), 500
     except Exception as e:
-        print(f"Failed to read or process email template: {e}")
-        return
+        return jsonify({'message': 'Error processing email template: ' + str(e)}), 500
 
     msg = MIMEMultipart()
     msg['Subject'] = subject
@@ -73,34 +72,33 @@ def send_verification_email(email, code):
             smtp_server.sendmail(sender, recipients, msg.as_string())
         print("Email sent successfully")
     except smtplib.SMTPException as e:
-        print(f"Failed to send email: {e}")
+        return jsonify({'message': 'Failed to send email: ' + str(e)}), 500
+    except Exception as e:
+        return jsonify({'message': 'Unexpected error sending email: ' + str(e)}), 500
 
 def generate_token(email):
     token = hashlib.sha256(os.urandom(64)).hexdigest()
-    conn = get_db_connection()
-    conn.execute("INSERT INTO tokens (token, email) VALUES (?, ?)", (token, email))
-    conn.commit()
-    conn.close()
+    try:
+        conn = get_db_connection()
+        conn.execute("INSERT INTO tokens (token, email) VALUES (?,?)", (token, email))
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as e:
+        return jsonify({'message': 'Database error generating token: ' + str(e)}), 500
+    except Exception as e:
+        return jsonify({'message': 'Unexpected error generating token: ' + str(e)}), 500
     return token
 
-
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.headers.get('x-access-token')
-        if not token:
-            return jsonify({'message': 'Token is missing'}), 401
-        if not verify_token(token):
-            return jsonify({'message': 'Token is invalid'}), 401
-        return f(*args, **kwargs)
-    return decorated
-
 def verify_token(token):
-    conn = get_db_connection()
-    user = conn.execute("SELECT * FROM tokens WHERE token = ?", (token,)).fetchone()
-    conn.close()
+    try:
+        conn = get_db_connection()
+        user = conn.execute("SELECT * FROM tokens WHERE token =?", (token,)).fetchone()
+        conn.close()
+    except sqlite3.Error as e:
+        return False, {'message': 'Database error verifying token: ' + str(e)}
+    except Exception as e:
+        return False, {'message': 'Unexpected error verifying token: ' + str(e)}
     return user is not None
-
 
 class UserAccess(Resource):
     def post(self):
@@ -108,12 +106,12 @@ class UserAccess(Resource):
         code = request.json.get('code', None)
 
         conn = get_db_connection()
-        user = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        user = conn.execute("SELECT * FROM users WHERE email =?", (email,)).fetchone()
 
         if not user:
             code = generate_verification_code()
             expiry = int(time.time()) + 600
-            conn.execute("INSERT INTO users (email, verification_code, code_expiry) VALUES (?, ?, ?)",
+            conn.execute("INSERT INTO users (email, verification_code, code_expiry) VALUES (?,?,?)",
                          (email, code, expiry))
             conn.commit()
             send_verification_email(email, code)
@@ -130,7 +128,7 @@ class UserAccess(Resource):
         else:
             code = generate_verification_code()
             expiry = int(time.time()) + 600
-            conn.execute("UPDATE users SET verification_code = ?, code_expiry = ? WHERE email = ?",
+            conn.execute("UPDATE users SET verification_code =?, code_expiry =? WHERE email =?",
                          (code, expiry, email))
             conn.commit()
             send_verification_email(email, code)
@@ -146,7 +144,7 @@ class Vote(Resource):
         contestant_id = request.json.get('contestant_id')
 
         conn = get_db_connection()
-        user = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        user = conn.execute("SELECT * FROM users WHERE email =?", (email,)).fetchone()
 
         if not user:
             conn.close()
@@ -156,7 +154,7 @@ class Vote(Resource):
             conn.close()
             return {'error': 'User has already voted'}, 400
 
-        conn.execute("UPDATE users SET contestant_voted = ? WHERE email = ?", (contestant_id, email))
+        conn.execute("UPDATE users SET contestant_voted =? WHERE email =?", (contestant_id, email))
         conn.commit()
         conn.close()
         return {'message': 'Vote recorded'}, 200
@@ -176,4 +174,5 @@ api.add_resource(Vote, '/vote')
 api.add_resource(VoteResults, '/results')
 
 if __name__ == '__main__':
+    init_db()
     app.run(port=3003)
