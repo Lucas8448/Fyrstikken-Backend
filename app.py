@@ -118,10 +118,10 @@ def token_required(f):
         is_valid, email_or_error = verify_token(token)
         if not is_valid:
             return jsonify(email_or_error), 401
+        # Add the email to the request context for use in the view function
         request.email = email_or_error
         return f(*args, **kwargs)
     return decorated_function
-
 
 @app.route('/access', methods=['POST'])
 def user_access():
@@ -155,9 +155,7 @@ def user_access():
 @app.route('/vote', methods=['POST'])
 @token_required
 def vote():
-    email = verify_token(request.json.get('token'))
-    if email is None:
-        return jsonify({'message': 'Token not found'}), 400  
+    email = request.email  # Retrieve the email from the request context
     contestant_id = request.json.get('contestant_id')
 
     conn = get_db_connection()
