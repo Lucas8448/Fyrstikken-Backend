@@ -12,7 +12,9 @@ from functools import wraps
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, resources={"/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS"], "allow_headers": ["Content-Type"]}}, supports_credentials=True)
+CORS(app, 
+     resources={r"/*": {"origins": "*", "allow_headers": ["Content-Type", "Authorization"], "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "supports_credentials": True}}
+)
 dotenv.load_dotenv()
 
 DATABASE = 'voting.db'
@@ -123,9 +125,10 @@ def token_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-@app.route('/access', methods=['OPTIONS'])
-def options_access():
-    return '', 204
+@app.route('/*', methods=['OPTIONS'])
+def options():
+    # return options response required to allow full cors
+    return jsonify({}), 200
 
 @app.route('/access', methods=['POST'])
 def user_access():
@@ -187,14 +190,6 @@ def vote_results():
     vote_counts = {result['contestant_voted']: result['vote_count'] for result in results}
 
     return jsonify(vote_counts), 200
-
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    response.headers.add('Access-Control-Allow-Credentials', 'true')
-    return response
 
 if __name__ == '__main__':
     init_db()
