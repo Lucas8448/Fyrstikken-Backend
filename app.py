@@ -194,4 +194,4 @@ def vote_results():
 if __name__ == '__main__':
     init_db()
     context = ('cert.pem', 'key.pem')
-    app.run(host='0.0.0.0', port=5000, ssl_context=context, threaded=True, debug=True)
+    app.run(host='0.0.0.0', port=5000, ssl_context=('adhoc', None), threaded=True, debug=True)
