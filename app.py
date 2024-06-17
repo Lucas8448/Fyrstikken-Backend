@@ -17,6 +17,13 @@ dotenv.load_dotenv()
 
 DATABASE = 'voting.db'
 
+@app.before_request
+def before_request():
+    remote_addr = request.remote_addr
+    if remote_addr.startswith('127.'):
+        remote_addr = request.headers.get('X-Forwarded-For')
+    os.environ['REMOTE_ADDR'] = remote_addr
+
 def get_db_connection():
     conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
