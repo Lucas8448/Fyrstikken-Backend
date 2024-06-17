@@ -103,7 +103,11 @@ def verify_token(token):
         return False, {'message': 'Database error verifying token: ' + str(e)}
     except Exception as e:
         return False, {'message': 'Unexpected error verifying token: ' + str(e)}
-    return user is not None
+    
+    if user:
+        return True, None
+    else:
+        return False, {'message': 'Invalid token'}
 
 def token_required(f):
     @wraps(f)
