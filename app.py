@@ -199,4 +199,4 @@ def after_request(response):
 if __name__ == '__main__':
     init_db()
     context = ('cert.pem', 'key.pem')
-    app.run(host='0.0.0.0', port=5000, ssl_context=context, threaded=True)
+    app.run(host='0.0.0.0', port=5000, ssl_context=context, threaded=True, debug=True)
