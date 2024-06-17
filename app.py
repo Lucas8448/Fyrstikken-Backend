@@ -105,7 +105,7 @@ def verify_token(token):
         return False, {'message': 'Unexpected error verifying token: ' + str(e)}
     
     if user:
-        return True, None
+        return True, user['email']
     else:
         return False, {'message': 'Invalid token'}
 
@@ -115,11 +115,13 @@ def token_required(f):
         token = request.json.get('token')
         if not token:
             return jsonify({'message': 'Token is missing'}), 401
-        is_valid, error_message = verify_token(token)
+        is_valid, email_or_error = verify_token(token)
         if not is_valid:
-            return jsonify(error_message), 401
+            return jsonify(email_or_error), 401
+        request.email = email_or_error
         return f(*args, **kwargs)
     return decorated_function
+
 
 @app.route('/access', methods=['POST'])
 def user_access():
