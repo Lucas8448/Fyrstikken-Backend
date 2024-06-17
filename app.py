@@ -37,6 +37,11 @@ def init_db():
         email TEXT NOT NULL
     )
     """)
+
+    allowed_emails = os.getenv("ALLOWED_MAILS", "").split(',')
+    for email in allowed_emails:
+        conn.execute("INSERT OR IGNORE INTO users (email) VALUES (?)", (email,))
+    
     conn.commit()
     conn.close()
 
@@ -119,14 +124,8 @@ def user_access():
     user = conn.execute("SELECT * FROM users WHERE email =?", (email,)).fetchone()
 
     if not user:
-        code = generate_verification_code()
-        expiry = int(time.time()) + 600
-        conn.execute("INSERT INTO users (email, verification_code, code_expiry) VALUES (?,?,?)",
-                     (email, code, expiry))
-        conn.commit()
-        send_verification_email(email, code)
         conn.close()
-        return jsonify({'message': 'User registered, verification code sent'}), 200
+        return jsonify({'error': 'Email not allowed'}), 403
 
     if code:
         if user['verification_code'] == code and int(time.time()) < user['code_expiry']:
