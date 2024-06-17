@@ -12,7 +12,7 @@ from functools import wraps
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True, origins="*")
+CORS(app)
 dotenv.load_dotenv()
 
 DATABASE = 'voting.db'
