@@ -12,10 +12,7 @@ from functools import wraps
 from flask_cors import CORS
 
 app = Flask(__name__)
-cors_config = {
-    "origins": ["https://fyrstikken.vercel.app", "https://fyrstikken.f21elev.no"]
-}
-CORS(app, resources={"/*": cors_config}, supports_credentials=True)
+CORS(app, resources={"/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS"], "allow_headers": ["Content-Type"]}}, supports_credentials=True)
 dotenv.load_dotenv()
 
 DATABASE = 'voting.db'
@@ -125,6 +122,10 @@ def token_required(f):
         request.email = email_or_error
         return f(*args, **kwargs)
     return decorated_function
+
+@app.route('/access', methods=['OPTIONS'])
+def options_access():
+    return '', 204
 
 @app.route('/access', methods=['POST'])
 def user_access():
